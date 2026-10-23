@@ -197,6 +197,8 @@ function clean(t) {
 }
 
 async function loadCases() {
+  // One call checks the password, so a wrong guess counts once, not once per request.
+  await api("/api/check");
   const [list, modes] = await Promise.all([
     api("/api/cases").then(r => r.json()), api("/api/modes").then(r => r.json())]);
   MODES = modes;
