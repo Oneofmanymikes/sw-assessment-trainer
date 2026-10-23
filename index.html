@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assessment Practice</title>
+<link rel="icon" href="data:,">
+<meta name="robots" content="noindex, nofollow">
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2.22.3/dist/livekit-client.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1f2328; --muted: #5f6670; --line: #dcd9d2;
+    --accent: #2f5d62; --accent-ink: #ffffff; --accent-soft: #e3eeee;
+    --warn: #8a4b00; --warn-bg: #fff4e5; --live: #b42318; --ok: #1f6f43;
+    --me: #e3eeee; --them: #f0eee9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181c; --panel: #1d2126; --ink: #e8e6e3; --muted: #a0a7b0; --line: #333940;
+      --accent: #6fa8ad; --accent-ink: #0f1a1b; --accent-soft: #23393b;
+      --warn: #f0b264; --warn-bg: #2b2115; --live: #f97066; --ok: #6cc497;
+      --me: #23393b; --them: #272b31;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  h3 { font-size: 1rem; margin: 18px 0 6px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+           padding: 20px; margin-bottom: 16px; }
+  label.field { font-weight: 600; display: block; margin-bottom: 6px; }
+  input[type=text] { width: 100%; max-width: 360px; padding: 8px 10px; font: inherit;
+                     border: 1px solid var(--line); border-radius: 6px;
+                     background: var(--bg); color: var(--ink); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+  .pick { text-align: left; font: inherit; color: inherit; background: var(--bg);
+          border: 1px solid var(--line); border-radius: 8px; padding: 14px; cursor: pointer; }
+  .pick[aria-pressed=true] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent);
+                             background: var(--accent-soft); }
+  .pick b { display: block; margin-bottom: 4px; }
+  .meta { color: var(--muted); font-size: .875rem; }
+  .notes { background: var(--warn-bg); color: var(--warn); border-radius: 6px;
+           padding: 8px 12px; font-size: .9rem; margin: 12px 0; }
+  dl { margin: 0; } dt { font-weight: 600; margin-top: 10px; } dd { margin: 2px 0 0; }
+  ul { margin: 4px 0 0; padding-left: 20px; } li { margin: 2px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button.btn { font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 6px;
+               border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink);
+               cursor: pointer; }
+  button.btn.secondary { background: transparent; color: var(--ink); border-color: var(--line); }
+  button.btn.secondary[aria-pressed=true] { border-color: var(--accent); background: var(--accent-soft); }
+  button.btn:disabled { opacity: .5; cursor: not-allowed; }
+  .status { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); }
+  .timer { font-variant-numeric: tabular-nums; color: var(--muted); margin-left: auto; }
+  .hidden { display: none !important; }
+  .msg { color: var(--muted); margin-top: 12px; }
+
+  /* assessment model */
+  .ref .purpose { margin: 0 0 8px; }
+  .ref details { border-top: 1px solid var(--line); padding: 8px 0; }
+  .ref summary { cursor: pointer; font-weight: 600; }
+  .ref .ask { color: var(--muted); font-style: italic; }
+  .ref .ask li::marker { content: "“ "; }
+  .scroll { max-height: 60vh; overflow-y: auto; padding-right: 6px; }
+
+  /* live layout */
+  .live-body { display: grid; gap: 16px; margin-top: 16px; grid-template-columns: 1fr; }
+  .live-body.two { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  @media (max-width: 760px) { .live-body.two { grid-template-columns: 1fr; } }
+  .side { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: var(--bg); }
+  #chat { height: 60vh; min-height: 280px; overflow-y: auto; display: flex; flex-direction: column;
+          gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: var(--bg); }
+  .bubble { max-width: 85%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; }
+  .bubble .who { display: block; font-size: .75rem; font-weight: 600; color: var(--muted); }
+  .bubble.client { align-self: flex-start; background: var(--them); }
+  .bubble.student { align-self: flex-end; background: var(--me); }
+  .bubble.interim { opacity: .65; }
+  .quiet { color: var(--muted); text-align: center; margin: auto; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Assessment Practice</h1>
+  <p class="sub">Voice role-play with a simulated client. The client is an AI and the case is fictional.</p>
+
+  <section class="panel hidden" id="login">
+    <h2>Sign in</h2>
+    <form id="login-form">
+      <label class="field" for="pw">Password</label>
+      <div class="row">
+        <input type="password" id="pw" autocomplete="current-password" required
+               style="width:100%;max-width:280px;padding:8px 10px;font:inherit;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)">
+        <button class="btn" type="submit">Enter</button>
+      </div>
+      <p class="msg" id="login-msg"></p>
+    </form>
+  </section>
+
+  <section class="panel hidden" id="setup">
+    <label class="field" for="student">Your name (saved with the transcript)</label>
+    <input type="text" id="student" autocomplete="name">
+    <h2 style="margin-top:20px">Choose a case</h2>
+    <div class="grid" id="cases"><p class="meta">Loading cases...</p></div>
+  </section>
+
+  <section class="panel hidden" id="brief">
+    <h2 id="b-title"></h2>
+    <div class="meta" id="b-meta"></div>
+    <div class="notes hidden" id="b-notes"></div>
+    <dl id="b-body"></dl>
+
+    <h3>Difficulty</h3>
+    <div class="grid" id="modes">
+      <button class="pick" data-mode="easy" aria-pressed="false"><b>Easy</b>
+        <span class="meta">Assessment model before and during the session, plus a live chat log.</span></button>
+      <button class="pick" data-mode="medium" aria-pressed="true"><b>Medium</b>
+        <span class="meta">Assessment model before and during the session. No chat log.</span></button>
+      <button class="pick" data-mode="hard" aria-pressed="false"><b>Hard</b>
+        <span class="meta">No assessment model and no chat log. Just you and the client.</span></button>
+    </div>
+
+    <div id="prep" class="ref"></div>
+
+    <p class="msg">You speak first, as the worker. Say "end simulation" or press End at any time.
+      Your session is saved as a text transcript for your instructor.</p>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" id="start">Start session</button>
+      <button class="btn secondary" id="back">Choose another case</button>
+    </div>
+  </section>
+
+  <section class="panel hidden" id="live">
+    <div class="row">
+      <div class="status"><span class="dot" id="dot"></span><span id="state">Connecting...</span></div>
+      <span class="meta" id="mode-label"></span>
+      <span class="timer" id="timer">0:00</span>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn secondary" id="mute">Mute mic</button>
+      <button class="btn secondary" id="show-ref" aria-pressed="false">Assessment model</button>
+      <button class="btn secondary" id="show-brief" aria-pressed="false">Referral</button>
+      <button class="btn" id="end" style="margin-left:auto">End session</button>
+    </div>
+    <div class="live-body" id="live-body">
+      <div id="chat-wrap"><div id="chat"><p class="quiet" id="chat-empty">The conversation will appear here.</p></div></div>
+      <aside class="side hidden" id="side"><div class="scroll ref" id="side-content"></div></aside>
+    </div>
+    <p class="msg hidden" id="done"></p>
+  </section>
+</main>
+
+<script>
+// Where the API lives. Empty = same server as this page (local). The GitHub Pages copy sets
+// the Cloud Run URL here.
+const API_BASE = "https://sw-trainer-api-58998526659.northamerica-northeast1.run.app";
+</script>
+<script>
+const LK = window.LivekitClient;
+let password = "";
+try { password = sessionStorage.getItem("trainer-pw") || ""; } catch (e) {}
+
+async function api(path, opts = {}) {
+  const r = await fetch(API_BASE + path, { ...opts,
+    headers: { ...(opts.headers || {}), "X-Trainer-Password": password } });
+  if (r.status === 401 || r.status === 429) {
+    const j = await r.json().catch(() => ({}));
+    showLogin(j.error || "Please sign in.");
+    throw new Error(j.error || "Not signed in");
+  }
+  return r;
+}
+
+function showLogin(msg) {
+  ["setup", "brief", "live"].forEach(id => $(id).classList.add("hidden"));
+  $("login").classList.remove("hidden");
+  $("login-msg").textContent = msg || "";
+  $("pw").focus();
+}
+const $ = (id) => document.getElementById(id);
+const TYPES = { intake_biopsychosocial: "Intake / biopsychosocial", suicide_risk: "Suicide risk",
+                ipv_safety: "IPV / safety", mh_substance: "Mental health / substance use" };
+let MODES = {}, chosen = null, mode = "medium", reference = null;
+let room = null, timerId = null, startedAt = 0, muted = false, sidePane = null;
+const segments = new Map();   // transcription segment id -> bubble element
+
+function esc(s) { return String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+// Same idea as the agent's TTS filter: drop *asides* longer than two words, and (asides)/[asides].
+function clean(t) {
+  return t.replace(/\*([^*]*)\*/g, (m, inner) => inner.trim().split(/\s+/).length <= 2 ? inner : "")
+          .replace(/\([^)]*\)|\[[^\]]*\]/g, "").replace(/[ \t]{2,}/g, " ").trim();
+}
+
+async function loadCases() {
+  const [list, modes] = await Promise.all([
+    api("/api/cases").then(r => r.json()), api("/api/modes").then(r => r.json())]);
+  MODES = modes;
+  $("login").classList.add("hidden");
+  $("setup").classList.remove("hidden");
+  $("cases").innerHTML = "";
+  for (const c of list) {
+    const b = document.createElement("button");
+    b.className = "pick"; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<b>${esc(c.title)}</b><span class="meta">${esc(TYPES[c.assessment_type] || c.assessment_type)}
+      · difficulty ${esc(c.difficulty)}/4 · ${esc(c.status)}</span>`;
+    b.onclick = () => choose(c, b);
+    $("cases").appendChild(b);
+  }
+}
+
+function briefHtml(c) {
+  const s = c.student_brief;
+  const known = (s.what_you_know || []).map(x => `<li>${esc(x)}</li>`).join("");
+  return `<dt>Setting</dt><dd>${esc(s.setting)}</dd>
+    <dt>Referral</dt><dd>${esc(s.referral_note)}</dd>
+    ${known ? `<dt>What you know</dt><dd><ul>${known}</ul></dd>` : ""}
+    <dt>Your task</dt><dd>${esc(s.task)}</dd>`;
+}
+
+function refHtml(r, open) {
+  const list = (xs, cls) => xs && xs.length ? `<ul class="${cls || ""}">${xs.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+  return `<h3 style="margin-top:0">${esc(r.title)}</h3><p class="purpose">${esc(r.purpose)}</p>
+    ${r.sections.map(s => `<details ${open ? "open" : ""}><summary>${esc(s.heading)}</summary>
+      ${list(s.points)}${list(s.ask, "ask")}</details>`).join("")}
+    ${r.skills ? `<details ${open ? "open" : ""}><summary>Skills to use throughout</summary>${list(r.skills)}</details>` : ""}`;
+}
+
+async function choose(c, btn) {
+  chosen = c;
+  document.querySelectorAll("#cases .pick").forEach(x => x.setAttribute("aria-pressed", x === btn));
+  $("b-title").textContent = c.title;
+  $("b-meta").textContent = `${TYPES[c.assessment_type] || ""} · about ${c.time_limit_min} minutes`;
+  $("b-notes").classList.toggle("hidden", !c.content_notes.length);
+  $("b-notes").textContent = c.content_notes.length ? "Content note: " + c.content_notes.join("; ") : "";
+  $("b-body").innerHTML = briefHtml(c);
+  reference = await api(`/api/reference/${encodeURIComponent(c.reference_id)}`).then(r => r.ok ? r.json() : null);
+  $("setup").classList.add("hidden");
+  $("brief").classList.remove("hidden");
+  setMode(mode);
+  window.scrollTo(0, 0);
+}
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll("#modes .pick").forEach(x => x.setAttribute("aria-pressed", x.dataset.mode === m));
+  const showRef = MODES[m] && MODES[m].reference && reference;
+  $("prep").innerHTML = showRef
+    ? `<h3>Review before you start</h3><div class="panel" style="background:var(--bg)">${refHtml(reference, true)}</div>
+       <p class="meta">You can open this again during the session.</p>` : "";
+}
+
+function setState(text, cls) { $("state").textContent = text; $("dot").className = "dot " + (cls || ""); }
+
+function tick() {
+  const s = Math.floor((Date.now() - startedAt) / 1000);
+  $("timer").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} / ${chosen.time_limit_min}:00`;
+  if (s >= chosen.time_limit_min * 60) endSession("Time limit reached.");
+}
+
+// ---- chat log ----
+function bubble(seg, who) {
+  let el = segments.get(seg);
+  if (!el) {
+    $("chat-empty")?.remove();
+    el = document.createElement("div");
+    el.className = `bubble ${who}`;
+    el.innerHTML = `<span class="who">${who === "student" ? "You" : "Client"}</span><span class="t"></span>`;
+    el.dataset.raw = "";
+    $("chat").appendChild(el);
+    segments.set(seg, el);
+  }
+  return el;
+}
+function setBubble(el, raw, interim) {
+  el.dataset.raw = raw;
+  el.querySelector(".t").textContent = clean(raw);
+  el.classList.toggle("interim", !!interim);
+  const chat = $("chat");
+  if (chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120) chat.scrollTop = chat.scrollHeight;
+}
+
+async function onTranscript(reader, info) {
+  if (!MODES[mode].chat_log) return;
+  const a = reader.info.attributes || {};
+  const seg = a["lk.segment_id"] || reader.info.id;
+  const who = info.identity === room?.localParticipant.identity ? "student" : "client";
+  const el = bubble(seg, who);
+  if (who === "client") {
+    // agent speech streams as deltas, timed to the voice
+    for await (const chunk of reader) setBubble(el, el.dataset.raw + chunk, true);
+    el.classList.remove("interim");
+  } else {
+    // student speech arrives as successive full transcripts of the same segment
+    const text = await reader.readAll();
+    setBubble(el, text, a["lk.transcription_final"] !== "true");
+  }
+}
+
+// ---- side pane (assessment model / referral) ----
+function toggleSide(which) {
+  sidePane = sidePane === which ? null : which;
+  $("show-ref").setAttribute("aria-pressed", sidePane === "ref");
+  $("show-brief").setAttribute("aria-pressed", sidePane === "brief");
+  $("side").classList.toggle("hidden", !sidePane);
+  if (sidePane === "ref") $("side-content").innerHTML = refHtml(reference, false);
+  if (sidePane === "brief") $("side-content").innerHTML = `<h3 style="margin-top:0">${esc(chosen.title)}</h3><dl>${briefHtml(chosen)}</dl>`;
+  layout();
+}
+function layout() {
+  const chat = MODES[mode].chat_log;
+  $("chat-wrap").classList.toggle("hidden", !chat);
+  $("live-body").classList.toggle("two", chat && !!sidePane);
+}
+
+async function start() {
+  $("start").disabled = true;
+  try {
+    const r = await api("/api/token", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ case_id: chosen.case_id, student: $("student").value, mode }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    room = new LK.Room({ adaptiveStream: true, dynacast: true });
+    room.on(LK.RoomEvent.TrackSubscribed, (track) => {
+      if (track.kind === "audio") { const el = track.attach(); el.dataset.lk = "1"; document.body.appendChild(el); }
+    });
+    room.on(LK.RoomEvent.ParticipantConnected, () => setState("Client is in the room. Begin when ready.", "ok"));
+    room.on(LK.RoomEvent.ActiveSpeakersChanged, (sp) => {
+      if (!room) return;
+      const me = room.localParticipant.identity;
+      setState(sp.some(p => p.identity !== me) ? "Client is speaking"
+             : sp.some(p => p.identity === me) ? "You are speaking" : "Listening", "ok");
+    });
+    room.on(LK.RoomEvent.Disconnected, () => finish());
+    room.registerTextStreamHandler("lk.transcription", onTranscript);
+
+    segments.clear();
+    $("chat").innerHTML = `<p class="quiet" id="chat-empty">The conversation will appear here.</p>`;
+    $("show-ref").classList.toggle("hidden", !(MODES[mode].reference && reference));
+    $("mode-label").textContent = mode[0].toUpperCase() + mode.slice(1) + " mode";
+    sidePane = null; $("side").classList.add("hidden");
+    $("show-ref").setAttribute("aria-pressed", "false"); $("show-brief").setAttribute("aria-pressed", "false");
+    layout();
+    $("brief").classList.add("hidden"); $("live").classList.remove("hidden"); $("done").classList.add("hidden");
+    $("mute").disabled = false; $("end").disabled = false;
+
+    await room.connect(j.url, j.token);
+    await room.startAudio();
+    await room.localParticipant.setMicrophoneEnabled(true);
+    setState("Waiting for the client to join...", "");
+    startedAt = Date.now(); timerId = setInterval(tick, 1000); tick();
+  } catch (e) {
+    alert("Could not start the session: " + e.message);
+    finish();
+  } finally {
+    $("start").disabled = false;
+  }
+}
+
+async function endSession(reason) {
+  if (room) { const r = room; room = null; await r.disconnect(); }
+  finish(reason);
+}
+
+function finish(reason) {
+  clearInterval(timerId); timerId = null;
+  document.querySelectorAll("audio[data-lk]").forEach(a => a.remove());
+  if (!$("live").classList.contains("hidden")) {
+    setState("Session ended", "");
+    $("done").innerHTML = esc((reason ? reason + " " : "") + "The transcript has been saved. ")
+      + `<a href="">Start another case</a>`;
+    $("done").classList.remove("hidden");
+    $("mute").disabled = true; $("end").disabled = true;
+  }
+  room = null;
+}
+
+document.querySelectorAll("#modes .pick").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+$("start").onclick = start;
+$("back").onclick = () => { $("brief").classList.add("hidden"); $("setup").classList.remove("hidden"); };
+$("end").onclick = () => endSession("");
+$("show-ref").onclick = () => toggleSide("ref");
+$("show-brief").onclick = () => toggleSide("brief");
+$("mute").onclick = async () => {
+  if (!room) return; muted = !muted;
+  await room.localParticipant.setMicrophoneEnabled(!muted);
+  $("mute").textContent = muted ? "Unmute mic" : "Mute mic";
+};
+$("login-form").onsubmit = (e) => {
+  e.preventDefault();
+  password = $("pw").value;
+  try { sessionStorage.setItem("trainer-pw", password); } catch (err) {}
+  loadCases().catch(() => {});
+};
+loadCases().catch(e => {
+  if ($("login").classList.contains("hidden")) {
+    $("setup").classList.remove("hidden");
+    $("cases").innerHTML = `<p class="meta">Could not load cases: ${esc(e.message)}</p>`;
+  }
+});
+</script>
+</body>
+</html>
