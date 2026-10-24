@@ -131,7 +131,7 @@
     <details id="instr" class="ref" style="margin-top:16px;border:1px solid var(--line);border-radius:8px;padding:10px 14px">
       <summary>Case details for instructors</summary>
       <p class="meta">The full case: background, what the client reveals and what unlocks it, and how
-        they react. This spoils the case for students, so it needs the instructor password.</p>
+        they react. <span id="instr-note"></span></p>
       <form id="instr-form" class="row">
         <input type="password" id="instr-pw" autocomplete="off" placeholder="Instructor password"
                style="width:100%;max-width:240px;padding:8px 10px;font:inherit;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)">
@@ -230,6 +230,9 @@ async function loadCases() {
   $("email-wrap").classList.toggle("hidden", !status.email);
   $("email-note").classList.toggle("hidden", !status.email);
   if (!status.email) $("email").value = "";
+  instrPwRequired = !!status.instructor_password;
+  $("instr-note").textContent = instrPwRequired
+    ? "This spoils the case for students, so it needs the instructor password." : "";
   const [list, modes] = await Promise.all([
     api("/api/cases").then(r => r.json()), api("/api/modes").then(r => r.json())]);
   MODES = modes;
@@ -264,7 +267,7 @@ function refHtml(r, open) {
 }
 
 // ---- instructor case details ----
-let instructorPw = "";
+let instructorPw = "", instrPwRequired = false;
 try { instructorPw = sessionStorage.getItem("trainer-instr-pw") || ""; } catch (e) {}
 
 function caseDetailsHtml(d) {
@@ -314,7 +317,7 @@ async function loadCaseDetails() {
     $("instr-msg").textContent = "";
   } catch (e) {
     $("instr-msg").textContent = e.message;
-    $("instr-form").classList.remove("hidden");
+    $("instr-form").classList.toggle("hidden", !instrPwRequired);
     instructorPw = "";
     try { sessionStorage.removeItem("trainer-instr-pw"); } catch (err) {}
   }
@@ -329,7 +332,7 @@ async function choose(c, btn) {
   $("b-notes").textContent = c.content_notes.length ? "Content note: " + c.content_notes.join("; ") : "";
   $("b-body").innerHTML = briefHtml(c);
   $("instr").open = false; $("instr-body").innerHTML = ""; $("instr-msg").textContent = "";
-  $("instr-form").classList.remove("hidden");
+  $("instr-form").classList.toggle("hidden", !instrPwRequired);
   reference = await api(`/api/reference/${encodeURIComponent(c.reference_id)}`).then(r => r.ok ? r.json() : null);
   $("setup").classList.add("hidden");
   $("brief").classList.remove("hidden");
@@ -507,7 +510,7 @@ $("instr-form").onsubmit = (e) => {
   loadCaseDetails();
 };
 $("instr").addEventListener("toggle", () => {
-  if ($("instr").open && instructorPw && !$("instr-body").innerHTML) loadCaseDetails();
+  if ($("instr").open && (instructorPw || !instrPwRequired) && !$("instr-body").innerHTML) loadCaseDetails();
 });
 $("login-form").onsubmit = (e) => {
   e.preventDefault();
