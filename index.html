@@ -72,6 +72,17 @@
   .ladder th, .ladder td { text-align: left; vertical-align: top; padding: 6px 8px; border-top: 1px solid var(--line); }
   .ladder th { color: var(--muted); font-weight: 600; }
   .tablewrap { overflow-x: auto; }
+  .wrapup { margin-top: 16px; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--ok);
+            background: var(--accent-soft); }
+  .wrapup b { color: var(--ok); }
+  #results { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .score-big { font-size: 2.2rem; font-weight: 700; line-height: 1.1; }
+  .sev { display: inline-block; font-size: .75rem; font-weight: 700; padding: 1px 8px; border-radius: 10px;
+         margin-right: 6px; border: 1px solid currentColor; }
+  .sev.critical { color: var(--live); } .sev.important { color: var(--warn); } .sev.context { color: var(--muted); }
+  .result-list { list-style: none; padding: 0; margin: 8px 0 16px; }
+  .result-list li { padding: 8px 0; border-top: 1px solid var(--line); }
+  .result-list .why { color: var(--muted); font-size: .9rem; margin-top: 2px; }
 
   /* live layout */
   .live-body { display: grid; gap: 16px; margin-top: 16px; grid-template-columns: 1fr; }
@@ -179,11 +190,13 @@
       <button class="btn secondary" id="show-brief" aria-pressed="false">Referral</button>
       <button class="btn" id="end" style="margin-left:auto">End session</button>
     </div>
+    <div class="wrapup hidden" id="wrapup" role="status"></div>
     <div class="live-body" id="live-body">
       <div id="chat-wrap"><div id="chat"><p class="quiet" id="chat-empty">The conversation will appear here.</p></div></div>
       <aside class="side hidden" id="side"><div class="scroll ref" id="side-content"></div></aside>
     </div>
     <p class="msg hidden" id="done"></p>
+    <div class="hidden" id="results"></div>
   </section>
 </main>
 
@@ -280,7 +293,8 @@ function caseDetailsHtml(d) {
   const ids = Object.entries(c.identities || {}).filter(([, v]) => v)
     .map(([k, v]) => { const l = k.replace(/_/g, " and "); return `${l[0].toUpperCase() + l.slice(1)}: ${v}`; });
   const rows = (d.disclosure_ladder || []).map(x => `<tr><td>${esc(x.fact)}</td><td>${esc(x.unlock)}</td>
-    <td>${x.hint ? "“" + esc(x.hint) + "”" : "<span class=\"meta\">nothing</span>"}</td></tr>`).join("");
+    <td>${x.hint ? "“" + esc(x.hint) + "”" : "<span class=\"meta\">nothing</span>"}</td>
+    <td><span class="sev ${esc(x.severity)}">${esc(x.severity)}</span><div class="meta">${esc(x.if_missed || "")}</div></td></tr>`).join("");
   return `
     <h3>How every client is instructed</h3>
     <p>The client is told it is playing a client in a training role-play and must stay realistic and
@@ -301,7 +315,7 @@ function caseDetailsHtml(d) {
     <p><b>Opening:</b> ${esc(d.opening)}</p>
     <h3>Disclosure ladder</h3>
     <div class="tablewrap"><table class="ladder"><thead><tr><th>What they reveal</th><th>Unlocks when</th>
-      <th>Before that, at most</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <th>Before that, at most</th><th>Severity if missed</th></tr></thead><tbody>${rows}</tbody></table></div>
     <h3>How they react to the student's skills</h3>${list(d.responds_to)}
     <h3>Always true</h3>${list(d.red_lines)}
     <h3>Strengths and supports</h3>${list(d.strengths)}
@@ -409,6 +423,57 @@ async function onTranscript(reader, info) {
   }
 }
 
+// ---- wrap-up banner and end-of-session score ----
+let currentRoom = null, resultPoll = null;
+
+async function onWrapUp(reader) {
+  let info = {};
+  try { info = JSON.parse(await reader.readAll()); } catch (e) {}
+  $("wrapup").innerHTML = (info.reason === "time"
+      ? "<b>You've been going for a while.</b> "
+      : "<b>You've found the key information.</b> ")
+    + "You can end naturally whenever you're ready: sum up what you heard and agree next steps, then say "
+    + "goodbye. For example: <i>\"I think we have a plan. Here are our next steps...\"</i> The client will "
+    + "say goodbye and the session will end.";
+  $("wrapup").classList.remove("hidden");
+}
+
+function resultsHtml(r) {
+  const s = r.score;
+  const sev = x => `<span class="sev ${x.severity}">${esc(x.severity[0].toUpperCase() + x.severity.slice(1))}</span>`;
+  const missed = s.missed.length
+    ? s.missed.map(x => `<li>${sev(x)}${esc(x.fact)}<div class="why">${esc(x.if_missed)}</div></li>`).join("")
+    : "<li>Nothing. You uncovered everything in this case.</li>";
+  const found = s.found.length
+    ? s.found.map(x => `<li>${sev(x)}${esc(x.fact)}</li>`).join("") : "<li>Nothing yet.</li>";
+  return `<h2>Your score</h2>
+    <div class="row"><span class="score-big">${s.percent}%</span>
+      <span class="meta">${s.points} of ${s.total} points · critical items found: ${s.critical_found} of ${s.critical_total}<br>
+      Critical items are worth 3 points, important 2, context 1.</span></div>
+    <h3>What you missed, and why it matters</h3><ul class="result-list">${missed}</ul>
+    <h3>What you uncovered</h3><ul class="result-list">${found}</ul>`;
+}
+
+function pollResult() {
+  if (!currentRoom) return;
+  const room = currentRoom, started = Date.now();
+  $("results").innerHTML = `<p class="meta">Working out your score...</p>`;
+  $("results").classList.remove("hidden");
+  clearInterval(resultPoll);
+  resultPoll = setInterval(async () => {
+    try {
+      const r = await api(`/api/result/${encodeURIComponent(room)}`).then(x => x.json());
+      if (r.ready && r.score) {
+        clearInterval(resultPoll);
+        $("results").innerHTML = resultsHtml(r);
+      } else if (Date.now() - started > 45000) {
+        clearInterval(resultPoll);
+        $("results").innerHTML = `<p class="meta">The score isn't ready yet. It will be in your transcript email if you entered one.</p>`;
+      }
+    } catch (e) { /* keep trying until the timeout */ }
+  }, 2500);
+}
+
 async function onCoach(reader) {
   if (!MODES[mode].coach) return;
   const text = await reader.readAll();
@@ -453,6 +518,9 @@ async function start() {
     room.on(LK.RoomEvent.Disconnected, () => finish());
     room.registerTextStreamHandler("lk.transcription", onTranscript);
     room.registerTextStreamHandler("coach", onCoach);
+    room.registerTextStreamHandler("wrapup", onWrapUp);
+    currentRoom = j.room;
+    $("wrapup").classList.add("hidden"); $("results").classList.add("hidden");
 
     segments.clear(); studentTurn = null;
     $("chat").innerHTML = `<p class="quiet" id="chat-empty">The conversation will appear here.</p>`;
@@ -492,6 +560,8 @@ function finish(reason) {
       + `<a href="">Start another case</a>`;
     $("done").classList.remove("hidden");
     $("mute").disabled = true; $("end").disabled = true;
+    $("wrapup").classList.add("hidden");
+    if (currentRoom) { pollResult(); currentRoom = null; }
   }
   room = null;
 }
