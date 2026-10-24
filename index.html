@@ -68,6 +68,10 @@
   .ref .ask { color: var(--muted); font-style: italic; }
   .ref .ask li::marker { content: "“ "; }
   .scroll { max-height: 60vh; overflow-y: auto; padding-right: 6px; }
+  .ladder { width: 100%; border-collapse: collapse; font-size: .9rem; margin-top: 6px; }
+  .ladder th, .ladder td { text-align: left; vertical-align: top; padding: 6px 8px; border-top: 1px solid var(--line); }
+  .ladder th { color: var(--muted); font-weight: 600; }
+  .tablewrap { overflow-x: auto; }
 
   /* live layout */
   .live-body { display: grid; gap: 16px; margin-top: 16px; grid-template-columns: 1fr; }
@@ -123,6 +127,19 @@
     <div class="meta" id="b-meta"></div>
     <div class="notes hidden" id="b-notes"></div>
     <dl id="b-body"></dl>
+
+    <details id="instr" class="ref" style="margin-top:16px;border:1px solid var(--line);border-radius:8px;padding:10px 14px">
+      <summary>Case details for instructors</summary>
+      <p class="meta">The full case: background, what the client reveals and what unlocks it, and how
+        they react. This spoils the case for students, so it needs the instructor password.</p>
+      <form id="instr-form" class="row">
+        <input type="password" id="instr-pw" autocomplete="off" placeholder="Instructor password"
+               style="width:100%;max-width:240px;padding:8px 10px;font:inherit;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)">
+        <button class="btn secondary" type="submit">Show details</button>
+        <span class="meta" id="instr-msg"></span>
+      </form>
+      <div id="instr-body"></div>
+    </details>
 
     <h3>Difficulty</h3>
     <div class="grid" id="modes">
@@ -246,6 +263,63 @@ function refHtml(r, open) {
     ${r.skills ? `<details ${open ? "open" : ""}><summary>Skills to use throughout</summary>${list(r.skills)}</details>` : ""}`;
 }
 
+// ---- instructor case details ----
+let instructorPw = "";
+try { instructorPw = sessionStorage.getItem("trainer-instr-pw") || ""; } catch (e) {}
+
+function caseDetailsHtml(d) {
+  const list = xs => xs && xs.length ? `<ul>${xs.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "<p class=\"meta\">None.</p>";
+  const c = d.client || {};
+  const ids = Object.entries(c.identities || {}).filter(([, v]) => v)
+    .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`);
+  const rows = (d.disclosure_ladder || []).map(x => `<tr><td>${esc(x.fact)}</td><td>${esc(x.unlock)}</td>
+    <td>${x.hint ? "“" + esc(x.hint) + "”" : "<span class=\"meta\">nothing</span>"}</td></tr>`).join("");
+  return `
+    <h3>How every client is instructed</h3>
+    <p>The client is told it is playing a client in a training role-play and must stay realistic and
+      consistent, never coach the student or prompt what to ask next, speak in short natural turns,
+      not invent major new facts, and not get dramatically worse or better than the case allows. It
+      reveals each item below only when the student genuinely earns it, and gives at most the hint
+      before that. It steps out of character only when the student says "end simulation", or if the
+      student seems to be in real distress about their own life, when it gives crisis lines
+      (9-8-8, Good2Talk, Laurier Student Wellness Centre) and ends the session. The client sees only
+      these instructions and the conversation; it never sees the assessment model or the Very easy
+      suggestions.</p>
+    <h3>Who the client is</h3>
+    <p><b>${esc(c.name)}</b>, ${esc(c.age)}, ${esc(c.pronouns)}</p>${list(ids)}
+    <p><b>Presenting problem:</b> ${esc(d.presenting_problem)}</p>
+    <h3>Background (true, but only comes out as earned)</h3>${list(d.background)}
+    <h3>How they come across</h3>
+    <p><b>Affect:</b> ${esc(d.affect)}</p><p><b>Speech:</b> ${esc(d.speech_style)}</p>
+    <p><b>If the student doesn't speak first:</b> ${esc(d.opening)}</p>
+    <h3>Disclosure ladder</h3>
+    <div class="tablewrap"><table class="ladder"><thead><tr><th>What they reveal</th><th>Unlocks when</th>
+      <th>Before that, at most</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <h3>How they react to the student's skills</h3>${list(d.responds_to)}
+    <h3>Always true</h3>${list(d.red_lines)}
+    <h3>Strengths and supports</h3>${list(d.strengths)}
+    <p class="meta">Status: ${esc(d.status)}. ${esc((d.review || {}).authored_by || "")}</p>`;
+}
+
+async function loadCaseDetails() {
+  if (!chosen) return;
+  $("instr-msg").textContent = "Loading...";
+  try {
+    const r = await api(`/api/case-details/${encodeURIComponent(chosen.case_id)}`,
+                        { headers: { "X-Instructor-Password": instructorPw } });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    $("instr-body").innerHTML = caseDetailsHtml(j);
+    $("instr-form").classList.add("hidden");
+    $("instr-msg").textContent = "";
+  } catch (e) {
+    $("instr-msg").textContent = e.message;
+    $("instr-form").classList.remove("hidden");
+    instructorPw = "";
+    try { sessionStorage.removeItem("trainer-instr-pw"); } catch (err) {}
+  }
+}
+
 async function choose(c, btn) {
   chosen = c;
   document.querySelectorAll("#cases .pick").forEach(x => x.setAttribute("aria-pressed", x === btn));
@@ -254,6 +328,8 @@ async function choose(c, btn) {
   $("b-notes").classList.toggle("hidden", !c.content_notes.length);
   $("b-notes").textContent = c.content_notes.length ? "Content note: " + c.content_notes.join("; ") : "";
   $("b-body").innerHTML = briefHtml(c);
+  $("instr").open = false; $("instr-body").innerHTML = ""; $("instr-msg").textContent = "";
+  $("instr-form").classList.remove("hidden");
   reference = await api(`/api/reference/${encodeURIComponent(c.reference_id)}`).then(r => r.ok ? r.json() : null);
   $("setup").classList.add("hidden");
   $("brief").classList.remove("hidden");
@@ -424,6 +500,15 @@ $("mute").onclick = async () => {
   await room.localParticipant.setMicrophoneEnabled(!muted);
   $("mute").textContent = muted ? "Unmute mic" : "Mute mic";
 };
+$("instr-form").onsubmit = (e) => {
+  e.preventDefault();
+  instructorPw = $("instr-pw").value;
+  try { sessionStorage.setItem("trainer-instr-pw", instructorPw); } catch (err) {}
+  loadCaseDetails();
+};
+$("instr").addEventListener("toggle", () => {
+  if ($("instr").open && instructorPw && !$("instr-body").innerHTML) loadCaseDetails();
+});
 $("login-form").onsubmit = (e) => {
   e.preventDefault();
   password = $("pw").value;
