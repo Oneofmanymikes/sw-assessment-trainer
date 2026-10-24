@@ -81,6 +81,9 @@
   .bubble.client { align-self: flex-start; background: var(--them); }
   .bubble.student { align-self: flex-end; background: var(--me); }
   .bubble.interim { opacity: .65; }
+  .bubble.tip { align-self: center; max-width: 92%; background: transparent; font-size: .92rem;
+                border: 1px dashed var(--accent); color: var(--ink); }
+  .bubble.tip .who { color: var(--accent); }
   .quiet { color: var(--muted); text-align: center; margin: auto; }
 </style>
 </head>
@@ -103,8 +106,14 @@
   </section>
 
   <section class="panel hidden" id="setup">
-    <label class="field" for="student">Your name (saved with the transcript)</label>
-    <input type="text" id="student" autocomplete="name">
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+      <div><label class="field" for="student">Your name (saved with the transcript)</label>
+        <input type="text" id="student" autocomplete="name"></div>
+      <div id="email-wrap" class="hidden"><label class="field" for="email">Email for your transcript (optional)</label>
+        <input type="text" id="email" autocomplete="email" inputmode="email"></div>
+    </div>
+    <p class="meta hidden" id="email-note">If you enter an email, the transcript is sent to you when the session ends,
+      and a copy goes to the test administrator.</p>
     <h2 style="margin-top:20px">Choose a case</h2>
     <div class="grid" id="cases"><p class="meta">Loading cases...</p></div>
   </section>
@@ -117,6 +126,8 @@
 
     <h3>Difficulty</h3>
     <div class="grid" id="modes">
+      <button class="pick" data-mode="very_easy" aria-pressed="false"><b>Very easy</b>
+        <span class="meta">Everything in Easy, plus a suggestion in the chat after each client reply on what to ask next.</span></button>
       <button class="pick" data-mode="easy" aria-pressed="false"><b>Easy</b>
         <span class="meta">Assessment model before and during the session, plus a live chat log.</span></button>
       <button class="pick" data-mode="medium" aria-pressed="true"><b>Medium</b>
@@ -198,7 +209,10 @@ function clean(t) {
 
 async function loadCases() {
   // One call checks the password, so a wrong guess counts once, not once per request.
-  await api("/api/check");
+  const status = await api("/api/check").then(r => r.json());
+  $("email-wrap").classList.toggle("hidden", !status.email);
+  $("email-note").classList.toggle("hidden", !status.email);
+  if (!status.email) $("email").value = "";
   const [list, modes] = await Promise.all([
     api("/api/cases").then(r => r.json()), api("/api/modes").then(r => r.json())]);
   MODES = modes;
@@ -271,7 +285,8 @@ function bubble(seg, who) {
     $("chat-empty")?.remove();
     el = document.createElement("div");
     el.className = `bubble ${who}`;
-    el.innerHTML = `<span class="who">${who === "student" ? "You" : "Client"}</span><span class="t"></span>`;
+    const label = { student: "You", client: "Client", tip: "Suggestion" }[who];
+    el.innerHTML = `<span class="who">${label}</span><span class="t"></span>`;
     el.dataset.raw = "";
     $("chat").appendChild(el);
     segments.set(seg, el);
@@ -311,6 +326,12 @@ async function onTranscript(reader, info) {
   }
 }
 
+async function onCoach(reader) {
+  if (!MODES[mode].coach) return;
+  const text = await reader.readAll();
+  setBubble(bubble("tip-" + reader.info.id, "tip"), text, false);
+}
+
 // ---- side pane (assessment model / referral) ----
 function toggleSide(which) {
   sidePane = sidePane === which ? null : which;
@@ -331,7 +352,8 @@ async function start() {
   $("start").disabled = true;
   try {
     const r = await api("/api/token", { method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ case_id: chosen.case_id, student: $("student").value, mode }) });
+      body: JSON.stringify({ case_id: chosen.case_id, student: $("student").value,
+                             email: $("email").value.trim(), mode }) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || r.statusText);
     room = new LK.Room({ adaptiveStream: true, dynacast: true });
@@ -347,11 +369,12 @@ async function start() {
     });
     room.on(LK.RoomEvent.Disconnected, () => finish());
     room.registerTextStreamHandler("lk.transcription", onTranscript);
+    room.registerTextStreamHandler("coach", onCoach);
 
     segments.clear(); studentTurn = null;
     $("chat").innerHTML = `<p class="quiet" id="chat-empty">The conversation will appear here.</p>`;
     $("show-ref").classList.toggle("hidden", !(MODES[mode].reference && reference));
-    $("mode-label").textContent = mode[0].toUpperCase() + mode.slice(1) + " mode";
+    $("mode-label").textContent = { very_easy: "Very easy", easy: "Easy", medium: "Medium", hard: "Hard" }[mode] + " mode";
     sidePane = null; $("side").classList.add("hidden");
     $("show-ref").setAttribute("aria-pressed", "false"); $("show-brief").setAttribute("aria-pressed", "false");
     layout();
@@ -381,7 +404,8 @@ function finish(reason) {
   document.querySelectorAll("audio[data-lk]").forEach(a => a.remove());
   if (!$("live").classList.contains("hidden")) {
     setState("Session ended", "");
-    $("done").innerHTML = esc((reason ? reason + " " : "") + "The transcript has been saved. ")
+    const mailed = $("email").value.trim() ? ` It will be emailed to ${$("email").value.trim()} in a minute or two.` : "";
+    $("done").innerHTML = esc((reason ? reason + " " : "") + "The transcript has been saved." + mailed + " ")
       + `<a href="">Start another case</a>`;
     $("done").classList.remove("hidden");
     $("mute").disabled = true; $("end").disabled = true;
