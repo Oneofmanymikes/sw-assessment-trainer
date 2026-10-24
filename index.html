@@ -271,7 +271,7 @@ function caseDetailsHtml(d) {
   const list = xs => xs && xs.length ? `<ul>${xs.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "<p class=\"meta\">None.</p>";
   const c = d.client || {};
   const ids = Object.entries(c.identities || {}).filter(([, v]) => v)
-    .map(([k, v]) => `${k.replace(/_/g, " ")}: ${v}`);
+    .map(([k, v]) => { const l = k.replace(/_/g, " and "); return `${l[0].toUpperCase() + l.slice(1)}: ${v}`; });
   const rows = (d.disclosure_ladder || []).map(x => `<tr><td>${esc(x.fact)}</td><td>${esc(x.unlock)}</td>
     <td>${x.hint ? "“" + esc(x.hint) + "”" : "<span class=\"meta\">nothing</span>"}</td></tr>`).join("");
   return `
@@ -291,7 +291,7 @@ function caseDetailsHtml(d) {
     <h3>Background (true, but only comes out as earned)</h3>${list(d.background)}
     <h3>How they come across</h3>
     <p><b>Affect:</b> ${esc(d.affect)}</p><p><b>Speech:</b> ${esc(d.speech_style)}</p>
-    <p><b>If the student doesn't speak first:</b> ${esc(d.opening)}</p>
+    <p><b>Opening:</b> ${esc(d.opening)}</p>
     <h3>Disclosure ladder</h3>
     <div class="tablewrap"><table class="ladder"><thead><tr><th>What they reveal</th><th>Unlocks when</th>
       <th>Before that, at most</th></tr></thead><tbody>${rows}</tbody></table></div>
