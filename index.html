@@ -286,20 +286,28 @@ function setBubble(el, raw, interim) {
   if (chat.scrollHeight - chat.scrollTop - chat.clientHeight < 120) chat.scrollTop = chat.scrollHeight;
 }
 
+// Everything the student says between two client replies goes in one bubble. Speech-to-text
+// sends one segment per pause; each segment's latest text is kept and the bubble shows them joined.
+let studentTurn = null;   // { el, parts: Map(segment id -> {text, final}) }
+
 async function onTranscript(reader, info) {
   if (!MODES[mode].chat_log) return;
   const a = reader.info.attributes || {};
   const seg = a["lk.segment_id"] || reader.info.id;
   const who = info.identity === room?.localParticipant.identity ? "student" : "client";
-  const el = bubble(seg, who);
   if (who === "client") {
+    studentTurn = null;   // the client replied, so the next student speech starts a new bubble
+    const el = bubble(seg, "client");
     // agent speech streams as deltas, timed to the voice
     for await (const chunk of reader) setBubble(el, el.dataset.raw + chunk, true);
     el.classList.remove("interim");
   } else {
     // student speech arrives as successive full transcripts of the same segment
     const text = await reader.readAll();
-    setBubble(el, text, a["lk.transcription_final"] !== "true");
+    if (!studentTurn) studentTurn = { el: bubble("turn-" + seg, "student"), parts: new Map() };
+    studentTurn.parts.set(seg, { text: text.trim(), final: a["lk.transcription_final"] === "true" });
+    const parts = [...studentTurn.parts.values()];
+    setBubble(studentTurn.el, parts.map(p => p.text).filter(Boolean).join(" "), parts.some(p => !p.final));
   }
 }
 
@@ -340,7 +348,7 @@ async function start() {
     room.on(LK.RoomEvent.Disconnected, () => finish());
     room.registerTextStreamHandler("lk.transcription", onTranscript);
 
-    segments.clear();
+    segments.clear(); studentTurn = null;
     $("chat").innerHTML = `<p class="quiet" id="chat-empty">The conversation will appear here.</p>`;
     $("show-ref").classList.toggle("hidden", !(MODES[mode].reference && reference));
     $("mode-label").textContent = mode[0].toUpperCase() + mode.slice(1) + " mode";
